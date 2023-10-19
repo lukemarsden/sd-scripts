@@ -5,8 +5,11 @@ RUN mkdir /app
 WORKDIR /app
 
 RUN apt-get update -y && apt-get install -y python3 python3-pip git unzip wget && \
-    git clone https://github.com/bmaltais/kohya_ss && \
-    cd kohya_ss && \
+    git clone https://github.com/lukemarsden/sd-scripts && \
+    cd sd-scripts && \
     pip install -r requirements.txt && \
     pip install bitsandbytes==0.41.1 && \
-    mkdir sdxl && (cd sdxl; wget https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/blob/main/sd_xl_base_1.0.safetensors)
+    pip install xformers==0.0.22.post4 && \
+    mkdir sdxl && ( \
+        cd sdxl; wget https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main/sd_xl_base_1.0.safetensors \
+    )
