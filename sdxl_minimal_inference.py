@@ -6,12 +6,16 @@ import datetime
 import math
 import os
 import random
+import sys
+import io
 from einops import repeat
 import numpy as np
 import requests
 import json
 import time
+import re
 import torch
+from contextlib import contextmanager
 try:
     import intel_extension_for_pytorch as ipex
     if torch.xpu.is_available():
@@ -63,7 +67,6 @@ def timestep_embedding(timesteps, dim, max_period=10000, repeat_only=False):
         embedding = repeat(timesteps, "b -> b d", d=dim)
     return embedding
 
-
 def get_timestep_embedding(x, outdim):
     assert len(x.shape) == 2
     b, dims = x.shape[0], x.shape[1]
@@ -74,6 +77,58 @@ def get_timestep_embedding(x, outdim):
     emb = torch.reshape(emb, (b, dims * outdim))
     return emb
 
+def extract_percentage(text):
+    match = re.search(r'(\d+)%', text)
+    if match:
+        return int(match.group(1))
+    else:
+        return None
+
+@contextmanager
+def redirect_stderr_to_function(func, buffer_size=1024, url="", sessionid=""):
+    class BufferedBytesStream(io.BytesIO):
+        def __init__(self, buffer_size):
+            super().__init__()
+            self.buffer_size = buffer_size
+            self.buffer = bytearray()
+
+        def write(self, b):
+            if isinstance(b, str):
+                b = b.encode('utf-8')
+            self.buffer.extend(b)
+            while len(self.buffer) >= self.buffer_size:
+                chunk, self.buffer = self.buffer[:self.buffer_size], self.buffer[self.buffer_size:]
+                # this is capture_model_output_chunk
+                func(url, sessionid, chunk)
+
+    original_stderr = sys.stderr
+    sys.stderr = BufferedBytesStream(buffer_size)
+
+    try:
+        yield
+    finally:
+        # Flush remaining bytes in buffer, if any
+        if len(sys.stderr.buffer) > 0:
+            # this is capture_model_output_chunk
+            func(url, sessionid, sys.stderr.buffer)
+        sys.stderr = original_stderr
+
+last_seen_progress = 0
+
+def capture_model_output_chunk(url, session_id, b):
+    global last_seen_progress
+    message = b.decode('utf-8')
+    percent = extract_percentage(message)
+    if percent is not None:
+        if round(percent / 5) > round(last_seen_progress / 5):
+            last_seen_progress = percent
+            print(f"percent: {percent}")
+            json_payload = json.dumps({
+                "type": "progress",
+                "session_id": session_id,
+                "progress": percent,
+            })
+            requests.post(url, data=json_payload)
 
 if __name__ == "__main__":
     # 画像生成条件を変更する場合はここを変更 / change here to change image generation conditions
@@ -338,13 +393,15 @@ if __name__ == "__main__":
             continue
 
         waitLoops = 0
+        last_seen_progress = 0
 
         task = json.loads(response.content)
 
         print("🟡 SDXL Job --------------------------------------------------\n")
         print(task)
 
-        image_paths = generate_image(task["session_id"], task["prompt"], "", "", seed)
+        with redirect_stderr_to_function(capture_model_output_chunk, buffer_size=20, url=respondJobURL, sessionid=task["session_id"]):
+            image_paths = generate_image(task["session_id"], task["prompt"], "", "", seed)
 
         print("🟡 SDXL Result --------------------------------------------------\n")
         print(image_paths)
