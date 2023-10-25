@@ -6,3 +6,6 @@ venv
 build
 .vscode
 wandb
+output
+output_images
+sdxl
