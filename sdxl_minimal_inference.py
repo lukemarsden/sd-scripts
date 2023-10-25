@@ -8,6 +8,9 @@ import os
 import random
 from einops import repeat
 import numpy as np
+import requests
+import json
+import time
 import torch
 try:
     import intel_extension_for_pytorch as ipex
@@ -90,9 +93,18 @@ if __name__ == "__main__":
     DEVICE = "cuda"
     DTYPE = torch.float16  # bfloat16 may work
 
+    getJobURL = os.environ.get("HELIX_GET_JOB_URL", None)
+    respondJobURL = os.environ.get("HELIX_RESPOND_JOB_URL", None)
+
+    if getJobURL is None:
+        sys.exit("HELIX_GET_JOB_URL is not set")
+
+    if respondJobURL is None:
+        sys.exit("HELIX_RESPOND_JOB_URL is not set")
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--ckpt_path", type=str, required=True)
-    parser.add_argument("--prompt", type=str, default="A photo of a cat")
+    parser.add_argument("--prompt", type=str, default="")
     parser.add_argument("--prompt2", type=str, default=None)
     parser.add_argument("--negative_prompt", type=str, default="")
     parser.add_argument("--output_dir", type=str, default=".")
@@ -181,7 +193,7 @@ if __name__ == "__main__":
         beta_schedule=SCHEDLER_SCHEDULE,
     )
 
-    def generate_image(prompt, prompt2, negative_prompt, seed=None):
+    def generate_image(session_id, prompt, prompt2, negative_prompt, seed=None):
         # 将来的にサイズ情報も変えられるようにする / Make it possible to change the size information in the future
         # prepare embedding
         with torch.no_grad():
@@ -302,27 +314,39 @@ if __name__ == "__main__":
         image = [Image.fromarray(im) for im in image]
 
         # 保存して終了 save and finish
+        image_paths = []
         timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
         for i, img in enumerate(image):
-            img.save(os.path.join(args.output_dir, f"image_{timestamp}_{i:03d}.png"))
+            image_path = os.path.join(args.output_dir, f"image_{session_id}_{timestamp}_{i:03d}.png")
+            image_paths.append(image_path)
+            img.save(image_path)
+        return image_paths
 
-    if not args.interactive:
-        generate_image(args.prompt, args.prompt2, args.negative_prompt, seed)
-    else:
-        # loop for interactive
-        while True:
-            prompt = input("prompt: ")
-            if prompt == "":
-                break
-            prompt2 = input("prompt2: ")
-            if prompt2 == "":
-                prompt2 = prompt
-            negative_prompt = input("negative prompt: ")
-            seed = input("seed: ")
-            if seed == "":
-                seed = None
-            else:
-                seed = int(seed)
-            generate_image(prompt, prompt2, negative_prompt, seed)
+    while True:
+        response = requests.get(getJobURL)
+        if response.status_code != 200:
+            time.sleep(0.1)
+            waitLoops = waitLoops + 1
+            if waitLoops % 10 == 0:
+                print("--------------------------------------------------\n")
+                current_timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                print(f"{current_timestamp} waiting for next job {getJobURL} {response.status_code}")
+            continue
 
-    print("Done!")
+        waitLoops = 0
+
+        task = json.loads(response.content)
+
+        print("🟡 SDXL Job --------------------------------------------------\n")
+        print(task)
+
+        image_paths = generate_image(task["session_id"], task["prompt"], "", "", seed)
+
+        print("🟡 SDXL Result --------------------------------------------------\n")
+        print(image_paths)
+        json_payload = json.dumps({
+            "type": "result",
+            "session_id": task["session_id"],
+            "files": image_paths
+        })
+        requests.post(respondJobURL, data=json_payload)
