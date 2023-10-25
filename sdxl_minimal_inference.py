@@ -95,12 +95,16 @@ if __name__ == "__main__":
 
     getJobURL = os.environ.get("HELIX_GET_JOB_URL", None)
     respondJobURL = os.environ.get("HELIX_RESPOND_JOB_URL", None)
+    appFolder = os.environ.get("APP_FOLDER", None)
 
     if getJobURL is None:
         sys.exit("HELIX_GET_JOB_URL is not set")
 
     if respondJobURL is None:
         sys.exit("HELIX_RESPOND_JOB_URL is not set")
+
+    if appFolder is None:
+        sys.exit("APP_FOLDER is not set")
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--ckpt_path", type=str, required=True)
@@ -317,7 +321,7 @@ if __name__ == "__main__":
         image_paths = []
         timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
         for i, img in enumerate(image):
-            image_path = os.path.join(args.output_dir, f"image_{session_id}_{timestamp}_{i:03d}.png")
+            image_path = os.path.join(appFolder, args.output_dir, f"image_{session_id}_{timestamp}_{i:03d}.png")
             image_paths.append(image_path)
             img.save(image_path)
         return image_paths
