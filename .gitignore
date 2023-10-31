@@ -8,4 +8,5 @@ build
 wandb
 output
 output_images
+output_loras
 sdxl

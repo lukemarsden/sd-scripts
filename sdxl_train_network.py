@@ -7,9 +7,36 @@ try:
         ipex_init()
 except Exception:
     pass
+import tempfile
+import os
+import io
+import sys
+from pathlib import Path
+import time
+import requests
+from datetime import datetime
+import json
+import re
 from library import sdxl_model_util, sdxl_train_util, train_util
+from contextlib import contextmanager
 import train_network
 
+toml_template = '''
+# for sdxl fine tuning
+
+[general]
+enable_bucket = true                        # Whether to use Aspect Ratio Bucketing
+
+[[datasets]]
+resolution = 1024                           # Training resolution
+batch_size = 4                              # Batch size
+
+  [[datasets.subsets]]
+  image_dir = '{dataset_path}' # Specify the folder containing the training images
+  caption_extension = '.txt'                # Caption file extension; change this if using .txt
+  num_repeats = 10                          # Number of repetitions for training images
+
+'''
 
 class SdxlNetworkTrainer(train_network.NetworkTrainer):
     def __init__(self):
@@ -172,12 +199,138 @@ def setup_parser() -> argparse.ArgumentParser:
     sdxl_train_util.add_sdxl_training_arguments(parser)
     return parser
 
+def extract_percentage(text):
+    match = re.search(r'\s+(\d+)%', text)
+    if match:
+        return int(match.group(1))
+    else:
+        return None
+
+@contextmanager
+def redirect_stderr_to_function(func, buffer_size=1024, url="", sessionid=""):
+    class BufferedBytesStream(io.BytesIO):
+        def __init__(self, buffer_size):
+            super().__init__()
+            self.buffer_size = buffer_size
+            self.buffer = bytearray()
+
+        def write(self, b):
+            if isinstance(b, str):
+                b = b.encode('utf-8')
+            self.buffer.extend(b)
+            while len(self.buffer) >= self.buffer_size:
+                chunk, self.buffer = self.buffer[:self.buffer_size], self.buffer[self.buffer_size:]
+                # this is capture_model_output_chunk
+                func(url, sessionid, chunk)
+
+    original_stderr = sys.stderr
+    sys.stderr = BufferedBytesStream(buffer_size)
+
+    try:
+        yield
+    finally:
+        # Flush remaining bytes in buffer, if any
+        if len(sys.stderr.buffer) > 0:
+            # this is capture_model_output_chunk
+            func(url, sessionid, sys.stderr.buffer)
+        sys.stderr = original_stderr
+
+last_seen_percent = 0
+
+def capture_model_output_chunk(url, session_id, b):
+    global last_seen_percent
+    message = b.decode('utf-8')
+    percent = extract_percentage(message)
+    epoch = extract_epoch(message)
+    if percent is not None and percent != last_seen_percent:
+        last_seen_percent = percent
+        print(f"percent: {percent}")
+        json_payload = json.dumps({
+            "type": "progress",
+            "session_id": session_id,
+            "progress": percent,
+        })
+        requests.post(url, data=json_payload)
 
 if __name__ == "__main__":
+    getJobURL = os.environ.get("HELIX_GET_JOB_URL", None)
+    respondJobURL = os.environ.get("HELIX_RESPOND_JOB_URL", None)
+    appFolder = os.environ.get("APP_FOLDER", None)
+
+    if getJobURL is None:
+        sys.exit("HELIX_GET_JOB_URL is not set")
+
+    if respondJobURL is None:
+        sys.exit("HELIX_RESPOND_JOB_URL is not set")
+
+    if appFolder is None:
+        sys.exit("APP_FOLDER is not set")
+
     parser = setup_parser()
+    cliArgs = parser.parse_args()
+    
+    while True:
+        response = requests.get(getJobURL)
+        if response.status_code != 200:
+            time.sleep(0.1)
+            waitLoops = waitLoops + 1
+            if waitLoops % 10 == 0:
+                print("--------------------------------------------------\n")
+                current_timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                print(f"{current_timestamp} waiting for next job {getJobURL} {response.status_code}")
+            continue
 
-    args = parser.parse_args()
-    args = train_util.read_config_from_file(args, parser)
+        waitLoops = 0
+        last_seen_progress = 0
 
-    trainer = SdxlNetworkTrainer()
-    trainer.train(args)
+        task = json.loads(response.content)
+
+        print("🟡 SDXL Finetine Job --------------------------------------------------\n")
+        print(task)
+
+        session_id = task["session_id"]
+        finetune_input_dir = task["finetune_input_dir"]
+
+        results_dir = f"/tmp/helix/results/{session_id}"
+        
+        Path(results_dir).mkdir(parents=True, exist_ok=True)
+
+        with tempfile.NamedTemporaryFile(suffix=".toml", delete=False) as temp:
+            config_path = temp.name
+        
+        values = {
+            'dataset_path': finetune_input_dir
+        }
+
+        filled_template = toml_template.format(**values)
+        with open(config_path, 'w') as f:
+            f.write(filled_template)
+
+        print("🟡 SDXL Config --------------------------------------------------\n")
+        print(filled_template)
+
+        print("🟡 SDXL Inputs --------------------------------------------------\n")
+        print(finetune_input_dir)
+
+        print("🟡 SDXL Outputs --------------------------------------------------\n")
+        print(results_dir)
+
+        cliArgs.dataset_config = config_path
+        cliArgs.output_dir = results_dir
+
+        args = train_util.read_config_from_file(cliArgs, parser)
+
+        print("🟡 SDXL Config File --------------------------------------------------\n")
+        print(config_path)
+
+        with redirect_stderr_to_function(capture_model_output_chunk, buffer_size=20, url=respondJobURL, sessionid=session_id):
+            trainer = SdxlNetworkTrainer()
+            trainer.train(args)
+
+        print("🟡 SDXL Result --------------------------------------------------\n")
+        print(results_dir)
+        
+
+    
+
+    

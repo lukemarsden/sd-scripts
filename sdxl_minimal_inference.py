@@ -150,6 +150,8 @@ if __name__ == "__main__":
 
     getJobURL = os.environ.get("HELIX_GET_JOB_URL", None)
     respondJobURL = os.environ.get("HELIX_RESPOND_JOB_URL", None)
+    # this points at the axolotl or sd-scripts repo in a relative way
+    # to where the helix runner is active
     appFolder = os.environ.get("APP_FOLDER", None)
 
     if getJobURL is None:
