@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 import time
 import requests
-from datetime import datetime
+import datetime
 import json
 import re
 from library import sdxl_model_util, sdxl_train_util, train_util
@@ -328,12 +328,17 @@ if __name__ == "__main__":
             trainer = SdxlNetworkTrainer()
             trainer.train(args)
 
-        print("🟡 SDXL Result --------------------------------------------------\n")
-        print("🟡 SDXL Result --------------------------------------------------\n")
-        print("🟡 SDXL Result --------------------------------------------------\n")
-        print(results_dir)
-        
+        final_file = results_dir + "/lora.safetensors"
 
-    
+        print("🟡 SDXL Result --------------------------------------------------\n")
+        print(final_file)
+        json_payload = json.dumps({
+            "type": "result",
+            "session_id": task["session_id"],
+            "files": [final_file]
+        })
+        requests.post(respondJobURL, data=json_payload)
+
+        
 
     
