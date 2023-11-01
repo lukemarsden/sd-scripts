@@ -267,6 +267,8 @@ if __name__ == "__main__":
 
     parser = setup_parser()
     cliArgs = parser.parse_args()
+
+    waitLoops = 0
     
     while True:
         response = requests.get(getJobURL)
