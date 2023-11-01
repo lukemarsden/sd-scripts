@@ -11,6 +11,7 @@ import tempfile
 import os
 import io
 import sys
+import time
 from pathlib import Path
 import time
 import requests
@@ -339,6 +340,9 @@ if __name__ == "__main__":
         })
         requests.post(respondJobURL, data=json_payload)
 
-        
+        time.sleep(1)
+        sys.exit(0)
+
+
 
     
