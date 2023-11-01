@@ -200,7 +200,7 @@ def setup_parser() -> argparse.ArgumentParser:
     return parser
 
 def extract_percentage(text):
-    match = re.search(r'\s+(\d+)%', text)
+    match = re.search(r'steps:\s+(\d+)%', text)
     if match:
         return int(match.group(1))
     else:
@@ -241,8 +241,7 @@ def capture_model_output_chunk(url, session_id, b):
     global last_seen_percent
     message = b.decode('utf-8')
     percent = extract_percentage(message)
-    epoch = extract_epoch(message)
-    if percent is not None and percent != last_seen_percent:
+    if percent is not None and percent is not last_seen_percent:
         last_seen_percent = percent
         print(f"percent: {percent}")
         json_payload = json.dumps({
@@ -306,6 +305,9 @@ if __name__ == "__main__":
         with open(config_path, 'w') as f:
             f.write(filled_template)
 
+        print("🟡 SDXL Config File --------------------------------------------------\n")
+        print(config_path)
+
         print("🟡 SDXL Config --------------------------------------------------\n")
         print(filled_template)
 
@@ -320,13 +322,12 @@ if __name__ == "__main__":
 
         args = train_util.read_config_from_file(cliArgs, parser)
 
-        print("🟡 SDXL Config File --------------------------------------------------\n")
-        print(config_path)
-
         with redirect_stderr_to_function(capture_model_output_chunk, buffer_size=20, url=respondJobURL, sessionid=session_id):
             trainer = SdxlNetworkTrainer()
             trainer.train(args)
 
+        print("🟡 SDXL Result --------------------------------------------------\n")
+        print("🟡 SDXL Result --------------------------------------------------\n")
         print("🟡 SDXL Result --------------------------------------------------\n")
         print(results_dir)
         
