@@ -383,6 +383,7 @@ if __name__ == "__main__":
             img.save(image_path)
         return image_paths
 
+    waitLoops = 0
     while True:
         response = requests.get(getJobURL)
         if response.status_code != 200:
