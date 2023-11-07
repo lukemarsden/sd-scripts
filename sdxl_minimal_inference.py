@@ -148,20 +148,29 @@ if __name__ == "__main__":
     DEVICE = "cuda"
     DTYPE = torch.float16  # bfloat16 may work
 
-    getJobURL = os.environ.get("HELIX_GET_JOB_URL", None)
-    respondJobURL = os.environ.get("HELIX_RESPOND_JOB_URL", None)
+    getJobURL = os.environ.get("HELIX_GET_JOB_URL", "")
+    getSessionURL = os.environ.get("HELIX_GET_SESSION_URL", "")
+    respondJobURL = os.environ.get("HELIX_RESPOND_JOB_URL", "")
     # this points at the axolotl or sd-scripts repo in a relative way
     # to where the helix runner is active
-    appFolder = os.environ.get("APP_FOLDER", None)
+    appFolder = os.environ.get("APP_FOLDER", "")
 
-    if getJobURL is None:
+    if getJobURL == "":
         sys.exit("HELIX_GET_JOB_URL is not set")
 
-    if respondJobURL is None:
+    if getSessionURL == "":
+        sys.exit("HELIX_GET_SESSION_URL is not set")
+
+    if respondJobURL == "":
         sys.exit("HELIX_RESPOND_JOB_URL is not set")
 
-    if appFolder is None:
+    if appFolder == "":
         sys.exit("APP_FOLDER is not set")
+
+    print(f"🟡 HELIX_GET_JOB_URL {getJobURL} --------------------------------------------------\n")
+    print(f"🟡 HELIX_GET_SESSION_URL {getSessionURL} --------------------------------------------------\n")
+    print(f"🟡 HELIX_RESPOND_JOB_URL {respondJobURL} --------------------------------------------------\n")
+    print(f"🟡 APP_FOLDER {appFolder} --------------------------------------------------\n")
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--ckpt_path", type=str, required=True)
@@ -169,13 +178,15 @@ if __name__ == "__main__":
     parser.add_argument("--prompt2", type=str, default=None)
     parser.add_argument("--negative_prompt", type=str, default="")
     parser.add_argument("--output_dir", type=str, default=".")
-    parser.add_argument(
-        "--lora_weights",
-        type=str,
-        nargs="*",
-        default=[],
-        help="LoRA weights, only supports networks.lora, each argument is a `path;multiplier` (semi-colon separated)",
-    )
+
+    # these weights will be loaded from the initial session
+    # parser.add_argument(
+    #     "--lora_weights",
+    #     type=str,
+    #     nargs="*",
+    #     default=[],
+    #     help="LoRA weights, only supports networks.lora, each argument is a `path;multiplier` (semi-colon separated)",
+    # )
     parser.add_argument("--interactive", action="store_true")
     args = parser.parse_args()
 
@@ -233,8 +244,35 @@ if __name__ == "__main__":
     tokenizer1 = CLIPTokenizer.from_pretrained(text_encoder_1_name)
     tokenizer2 = lambda x: open_clip.tokenize(x, context_length=77)
 
+    lora_weights = []
+    waiting_for_initial_session = True
+
+    # we need to load the first task to know what the Lora weights are
+    # perhaps there are no lora weights in which case we will skip
+    # this step - we are not popping the task from the queue
+    # rather waiting until it appears so we can know what lora weights to
+    # load (if any)
+    while waiting_for_initial_session:
+        response = requests.get(getSessionURL)
+        if response.status_code != 200:
+            time.sleep(0.1)
+            waitLoops = waitLoops + 1
+            if waitLoops % 10 == 0:
+                print("--------------------------------------------------\n")
+                current_timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                print(f"{current_timestamp} waiting for initial session {getSessionURL} {response.status_code}")
+            continue
+        
+        session = json.loads(response.content)
+        waiting_for_initial_session = False
+        if session["finetune_file"] != "":
+            lora_weights = [session["finetune_file"]]
+
+    print("🟡 Lora weights --------------------------------------------------\n")
+    print(lora_weights)
+
     # LoRA
-    for weights_file in args.lora_weights:
+    for weights_file in lora_weights:
         if ";" in weights_file:
             weights_file, multiplier = weights_file.split(";")
             multiplier = float(multiplier)
