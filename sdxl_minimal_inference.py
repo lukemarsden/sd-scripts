@@ -77,59 +77,6 @@ def get_timestep_embedding(x, outdim):
     emb = torch.reshape(emb, (b, dims * outdim))
     return emb
 
-def extract_percentage(text):
-    match = re.search(r'(\d+)%', text)
-    if match:
-        return int(match.group(1))
-    else:
-        return None
-
-@contextmanager
-def redirect_stderr_to_function(func, buffer_size=1024, url="", sessionid=""):
-    class BufferedBytesStream(io.BytesIO):
-        def __init__(self, buffer_size):
-            super().__init__()
-            self.buffer_size = buffer_size
-            self.buffer = bytearray()
-
-        def write(self, b):
-            if isinstance(b, str):
-                b = b.encode('utf-8')
-            self.buffer.extend(b)
-            while len(self.buffer) >= self.buffer_size:
-                chunk, self.buffer = self.buffer[:self.buffer_size], self.buffer[self.buffer_size:]
-                # this is capture_model_output_chunk
-                func(url, sessionid, chunk)
-
-    original_stderr = sys.stderr
-    sys.stderr = BufferedBytesStream(buffer_size)
-
-    try:
-        yield
-    finally:
-        # Flush remaining bytes in buffer, if any
-        if len(sys.stderr.buffer) > 0:
-            # this is capture_model_output_chunk
-            func(url, sessionid, sys.stderr.buffer)
-        sys.stderr = original_stderr
-
-last_seen_progress = 0
-
-def capture_model_output_chunk(url, session_id, b):
-    global last_seen_progress
-    message = b.decode('utf-8')
-    percent = extract_percentage(message)
-    if percent is not None:
-        if round(percent / 5) > round(last_seen_progress / 5):
-            last_seen_progress = percent
-            print(f"percent: {percent}")
-            json_payload = json.dumps({
-                "type": "progress",
-                "session_id": session_id,
-                "progress": percent,
-            })
-            requests.post(url, data=json_payload)
-
 if __name__ == "__main__":
     # 画像生成条件を変更する場合はここを変更 / change here to change image generation conditions
 
