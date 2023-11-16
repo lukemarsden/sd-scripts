@@ -200,68 +200,12 @@ def setup_parser() -> argparse.ArgumentParser:
     sdxl_train_util.add_sdxl_training_arguments(parser)
     return parser
 
-def extract_percentage(text):
-    match = re.search(r'steps:\s+(\d+)%', text)
-    if match:
-        return int(match.group(1))
-    else:
-        return None
-
-@contextmanager
-def redirect_stderr_to_function(func, buffer_size=1024, url="", sessionid=""):
-    class BufferedBytesStream(io.BytesIO):
-        def __init__(self, buffer_size):
-            super().__init__()
-            self.buffer_size = buffer_size
-            self.buffer = bytearray()
-
-        def write(self, b):
-            if isinstance(b, str):
-                b = b.encode('utf-8')
-            self.buffer.extend(b)
-            while len(self.buffer) >= self.buffer_size:
-                chunk, self.buffer = self.buffer[:self.buffer_size], self.buffer[self.buffer_size:]
-                # this is capture_model_output_chunk
-                func(url, sessionid, chunk)
-
-    original_stderr = sys.stderr
-    sys.stderr = BufferedBytesStream(buffer_size)
-
-    try:
-        yield
-    finally:
-        # Flush remaining bytes in buffer, if any
-        if len(sys.stderr.buffer) > 0:
-            # this is capture_model_output_chunk
-            func(url, sessionid, sys.stderr.buffer)
-        sys.stderr = original_stderr
-
-last_seen_percent = 0
-
-def capture_model_output_chunk(url, session_id, b):
-    global last_seen_percent
-    message = b.decode('utf-8')
-    percent = extract_percentage(message)
-    if percent is not None and percent is not last_seen_percent:
-        last_seen_percent = percent
-        print(f"percent: {percent}")
-        json_payload = json.dumps({
-            "type": "progress",
-            "session_id": session_id,
-            "progress": percent,
-        })
-        requests.post(url, data=json_payload)
-
 if __name__ == "__main__":
-    getJobURL = os.environ.get("HELIX_GET_JOB_URL", None)
-    respondJobURL = os.environ.get("HELIX_RESPOND_JOB_URL", None)
+    getJobURL = os.environ.get("HELIX_NEXT_TASK_URL", None)
     appFolder = os.environ.get("APP_FOLDER", None)
 
     if getJobURL is None:
         sys.exit("HELIX_GET_JOB_URL is not set")
-
-    if respondJobURL is None:
-        sys.exit("HELIX_RESPOND_JOB_URL is not set")
 
     if appFolder is None:
         sys.exit("APP_FOLDER is not set")
@@ -269,17 +213,10 @@ if __name__ == "__main__":
     parser = setup_parser()
     cliArgs = parser.parse_args()
 
-    waitLoops = 0
-    
     while True:
         response = requests.get(getJobURL)
         if response.status_code != 200:
             time.sleep(0.1)
-            waitLoops = waitLoops + 1
-            if waitLoops % 10 == 0:
-                print("--------------------------------------------------\n")
-                current_timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                print(f"{current_timestamp} waiting for next job {getJobURL} {response.status_code}")
             continue
 
         waitLoops = 0
@@ -325,24 +262,11 @@ if __name__ == "__main__":
 
         args = train_util.read_config_from_file(cliArgs, parser)
 
-        with redirect_stderr_to_function(capture_model_output_chunk, buffer_size=20, url=respondJobURL, sessionid=session_id):
-            trainer = SdxlNetworkTrainer()
-            trainer.train(args)
+        print(f"[SESSION_START]session_id={session_id}", file=sys.stdout)
+
+        trainer = SdxlNetworkTrainer()
+        trainer.train(args)
 
         final_file = results_dir + "/lora.safetensors"
 
-        print("🟡 SDXL Result --------------------------------------------------\n")
-        print(final_file)
-        json_payload = json.dumps({
-            "type": "result",
-            "session_id": task["session_id"],
-            "files": [final_file]
-        })
-        requests.post(respondJobURL, data=json_payload)
-
-        time.sleep(1)
-        sys.exit(0)
-
-
-
-    
+        print(f"[SESSION_END]{json.dumps([final_file])}", file=sys.stdout)

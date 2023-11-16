@@ -95,9 +95,9 @@ if __name__ == "__main__":
     DEVICE = "cuda"
     DTYPE = torch.float16  # bfloat16 may work
 
-    getJobURL = os.environ.get("HELIX_GET_JOB_URL", "")
-    readSessionURL = os.environ.get("HELIX_READ_INITIAL_SESSION_URL", "")
-    respondJobURL = os.environ.get("HELIX_RESPOND_JOB_URL", "")
+    getJobURL = os.environ.get("HELIX_NEXT_TASK_URL", "")
+    readSessionURL = os.environ.get("HELIX_INITIAL_SESSION_URL", "")
+    
     # this points at the axolotl or sd-scripts repo in a relative way
     # to where the helix runner is active
     appFolder = os.environ.get("APP_FOLDER", "")
@@ -108,15 +108,11 @@ if __name__ == "__main__":
     if readSessionURL == "":
         sys.exit("HELIX_GET_SESSION_URL is not set")
 
-    if respondJobURL == "":
-        sys.exit("HELIX_RESPOND_JOB_URL is not set")
-
     if appFolder == "":
         sys.exit("APP_FOLDER is not set")
 
-    print(f"🟡 HELIX_GET_JOB_URL {getJobURL} --------------------------------------------------\n")
-    print(f"🟡 HELIX_READ_INITIAL_SESSION_URL {readSessionURL} --------------------------------------------------\n")
-    print(f"🟡 HELIX_RESPOND_JOB_URL {respondJobURL} --------------------------------------------------\n")
+    print(f"🟡 HELIX_NEXT_TASK_URL {getJobURL} --------------------------------------------------\n")
+    print(f"🟡 HELIX_INITIAL_SESSION_URL {readSessionURL} --------------------------------------------------\n")
     print(f"🟡 APP_FOLDER {appFolder} --------------------------------------------------\n")
 
     parser = argparse.ArgumentParser()
@@ -202,7 +198,6 @@ if __name__ == "__main__":
     while waiting_for_initial_session:
         response = requests.get(readSessionURL)
         if response.status_code != 200:
-            print("waiting for initial session")
             time.sleep(0.1)
             continue
         
@@ -220,7 +215,7 @@ if __name__ == "__main__":
             weights_file, multiplier = weights_file.split(";")
             multiplier = float(multiplier)
         else:
-            multiplier = 1.0
+            multiplier = 0.7
 
         lora_model, weights_sd = lora.create_network_from_weights(
             multiplier, weights_file, vae, [text_model1, text_model2], unet, None, True
