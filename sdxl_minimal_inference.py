@@ -149,7 +149,7 @@ if __name__ == "__main__":
     DTYPE = torch.float16  # bfloat16 may work
 
     getJobURL = os.environ.get("HELIX_GET_JOB_URL", "")
-    getSessionURL = os.environ.get("HELIX_GET_SESSION_URL", "")
+    readSessionURL = os.environ.get("HELIX_READ_INITIAL_SESSION_URL", "")
     respondJobURL = os.environ.get("HELIX_RESPOND_JOB_URL", "")
     # this points at the axolotl or sd-scripts repo in a relative way
     # to where the helix runner is active
@@ -158,7 +158,7 @@ if __name__ == "__main__":
     if getJobURL == "":
         sys.exit("HELIX_GET_JOB_URL is not set")
 
-    if getSessionURL == "":
+    if readSessionURL == "":
         sys.exit("HELIX_GET_SESSION_URL is not set")
 
     if respondJobURL == "":
@@ -168,7 +168,7 @@ if __name__ == "__main__":
         sys.exit("APP_FOLDER is not set")
 
     print(f"🟡 HELIX_GET_JOB_URL {getJobURL} --------------------------------------------------\n")
-    print(f"🟡 HELIX_GET_SESSION_URL {getSessionURL} --------------------------------------------------\n")
+    print(f"🟡 HELIX_READ_INITIAL_SESSION_URL {readSessionURL} --------------------------------------------------\n")
     print(f"🟡 HELIX_RESPOND_JOB_URL {respondJobURL} --------------------------------------------------\n")
     print(f"🟡 APP_FOLDER {appFolder} --------------------------------------------------\n")
 
@@ -253,14 +253,10 @@ if __name__ == "__main__":
     # rather waiting until it appears so we can know what lora weights to
     # load (if any)
     while waiting_for_initial_session:
-        response = requests.get(getSessionURL)
+        response = requests.get(readSessionURL)
         if response.status_code != 200:
+            print("waiting for initial session")
             time.sleep(0.1)
-            waitLoops = waitLoops + 1
-            if waitLoops % 10 == 0:
-                print("--------------------------------------------------\n")
-                current_timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                print(f"{current_timestamp} waiting for initial session {getSessionURL} {response.status_code}")
             continue
         
         session = json.loads(response.content)
@@ -421,34 +417,24 @@ if __name__ == "__main__":
             img.save(image_path)
         return image_paths
 
-    waitLoops = 0
     while True:
         response = requests.get(getJobURL)
         if response.status_code != 200:
             time.sleep(0.1)
-            waitLoops = waitLoops + 1
-            if waitLoops % 10 == 0:
-                print("--------------------------------------------------\n")
-                current_timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                print(f"{current_timestamp} waiting for next job {getJobURL} {response.status_code}")
             continue
 
-        waitLoops = 0
         last_seen_progress = 0
 
         task = json.loads(response.content)
+        session_id = task["session_id"]
 
         print("🟡 SDXL Job --------------------------------------------------\n")
         print(task)
 
-        with redirect_stderr_to_function(capture_model_output_chunk, buffer_size=20, url=respondJobURL, sessionid=task["session_id"]):
-            image_paths = generate_image(task["session_id"], task["prompt"], "", "", seed)
+        print(f"[SESSION_START]session_id={session_id}", file=sys.stdout)
 
+        image_paths = generate_image(task["session_id"], task["prompt"], "", "", seed)
+
+        print(f"[SESSION_END]{json.dumps(image_paths)}", file=sys.stdout)
         print("🟡 SDXL Result --------------------------------------------------\n")
         print(image_paths)
-        json_payload = json.dumps({
-            "type": "result",
-            "session_id": task["session_id"],
-            "files": image_paths
-        })
-        requests.post(respondJobURL, data=json_payload)
