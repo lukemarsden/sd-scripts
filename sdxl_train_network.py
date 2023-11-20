@@ -9,6 +9,7 @@ except Exception:
     pass
 import tempfile
 import os
+import shutil
 import io
 import sys
 import time
@@ -228,17 +229,21 @@ if __name__ == "__main__":
         print(task)
 
         session_id = task["session_id"]
-        finetune_input_dir = task["finetune_input_dir"]
+        dataset_dir = task["dataset_dir"]
 
-        results_dir = f"/tmp/helix/results/{session_id}"
-        
-        Path(results_dir).mkdir(parents=True, exist_ok=True)
+        base_dir = f"/tmp/helix/results/{session_id}"
+        all_tensors_dir = f"{base_dir}/all_tensors"
+        final_tensors_dir = f"{base_dir}/final_tensors"
+        lora_filename = "lora.safetensors"
+
+        Path(all_tensors_dir).mkdir(parents=True, exist_ok=True)
+        Path(final_tensors_dir).mkdir(parents=True, exist_ok=True)
 
         with tempfile.NamedTemporaryFile(suffix=".toml", delete=False) as temp:
             config_path = temp.name
         
         values = {
-            'dataset_path': finetune_input_dir
+            'dataset_path': dataset_dir
         }
 
         filled_template = toml_template.format(**values)
@@ -252,21 +257,24 @@ if __name__ == "__main__":
         print(filled_template)
 
         print("🟡 SDXL Inputs --------------------------------------------------\n")
-        print(finetune_input_dir)
+        print(dataset_dir)
 
-        print("🟡 SDXL Outputs --------------------------------------------------\n")
-        print(results_dir)
+        print("🟡 SDXL All Outputs --------------------------------------------------\n")
+        print(all_tensors_dir)
 
-        cliArgs.dataset_config = config_path
-        cliArgs.output_dir = results_dir
+        # cliArgs.dataset_config = config_path
+        # cliArgs.output_dir = all_tensors_dir
 
-        args = train_util.read_config_from_file(cliArgs, parser)
+        # args = train_util.read_config_from_file(cliArgs, parser)
 
         print(f"[SESSION_START]session_id={session_id}", file=sys.stdout)
 
-        trainer = SdxlNetworkTrainer()
-        trainer.train(args)
+        # trainer = SdxlNetworkTrainer()
+        # trainer.train(args)
 
-        final_file = results_dir + "/lora.safetensors"
+        # shutil.move(f"{all_tensors_dir}/{lora_filename}", f"{final_tensors_dir}/{lora_filename}")
+        # shutil.rmtree(all_tensors_dir)
 
-        print(f"[SESSION_END]{json.dumps([final_file])}", file=sys.stdout)
+        shutil.copy(f"/tmp/helix/results/59f1fa58-34a4-434b-8dc3-36edf83dc712/final_tensors/{lora_filename}", f"{final_tensors_dir}/{lora_filename}")
+
+        print(f"[SESSION_END_LORA_DIR]lora_dir={final_tensors_dir}", file=sys.stdout)

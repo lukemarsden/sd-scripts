@@ -203,8 +203,8 @@ if __name__ == "__main__":
         
         session = json.loads(response.content)
         waiting_for_initial_session = False
-        if session["finetune_file"] != "":
-            lora_weights = [session["finetune_file"]]
+        # if session["lora_dir"] != "":
+        #     lora_weights = [session["lora_dir"]]
 
     print("🟡 Lora weights --------------------------------------------------\n")
     print(lora_weights)
@@ -377,6 +377,6 @@ if __name__ == "__main__":
 
         image_paths = generate_image(task["session_id"], task["prompt"], "", "", seed)
 
-        print(f"[SESSION_END]{json.dumps(image_paths)}", file=sys.stdout)
+        print(f"[SESSION_END_IMAGES]images={json.dumps(image_paths)}", file=sys.stdout)
         print("🟡 SDXL Result --------------------------------------------------\n")
         print(image_paths)
