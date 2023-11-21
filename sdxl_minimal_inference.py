@@ -77,59 +77,6 @@ def get_timestep_embedding(x, outdim):
     emb = torch.reshape(emb, (b, dims * outdim))
     return emb
 
-def extract_percentage(text):
-    match = re.search(r'(\d+)%', text)
-    if match:
-        return int(match.group(1))
-    else:
-        return None
-
-@contextmanager
-def redirect_stderr_to_function(func, buffer_size=1024, url="", sessionid=""):
-    class BufferedBytesStream(io.BytesIO):
-        def __init__(self, buffer_size):
-            super().__init__()
-            self.buffer_size = buffer_size
-            self.buffer = bytearray()
-
-        def write(self, b):
-            if isinstance(b, str):
-                b = b.encode('utf-8')
-            self.buffer.extend(b)
-            while len(self.buffer) >= self.buffer_size:
-                chunk, self.buffer = self.buffer[:self.buffer_size], self.buffer[self.buffer_size:]
-                # this is capture_model_output_chunk
-                func(url, sessionid, chunk)
-
-    original_stderr = sys.stderr
-    sys.stderr = BufferedBytesStream(buffer_size)
-
-    try:
-        yield
-    finally:
-        # Flush remaining bytes in buffer, if any
-        if len(sys.stderr.buffer) > 0:
-            # this is capture_model_output_chunk
-            func(url, sessionid, sys.stderr.buffer)
-        sys.stderr = original_stderr
-
-last_seen_progress = 0
-
-def capture_model_output_chunk(url, session_id, b):
-    global last_seen_progress
-    message = b.decode('utf-8')
-    percent = extract_percentage(message)
-    if percent is not None:
-        if round(percent / 5) > round(last_seen_progress / 5):
-            last_seen_progress = percent
-            print(f"percent: {percent}")
-            json_payload = json.dumps({
-                "type": "progress",
-                "session_id": session_id,
-                "progress": percent,
-            })
-            requests.post(url, data=json_payload)
-
 if __name__ == "__main__":
     # 画像生成条件を変更する場合はここを変更 / change here to change image generation conditions
 
@@ -148,9 +95,9 @@ if __name__ == "__main__":
     DEVICE = "cuda"
     DTYPE = torch.float16  # bfloat16 may work
 
-    getJobURL = os.environ.get("HELIX_GET_JOB_URL", "")
-    getSessionURL = os.environ.get("HELIX_GET_SESSION_URL", "")
-    respondJobURL = os.environ.get("HELIX_RESPOND_JOB_URL", "")
+    getJobURL = os.environ.get("HELIX_NEXT_TASK_URL", "")
+    readSessionURL = os.environ.get("HELIX_INITIAL_SESSION_URL", "")
+    
     # this points at the axolotl or sd-scripts repo in a relative way
     # to where the helix runner is active
     appFolder = os.environ.get("APP_FOLDER", "")
@@ -158,18 +105,14 @@ if __name__ == "__main__":
     if getJobURL == "":
         sys.exit("HELIX_GET_JOB_URL is not set")
 
-    if getSessionURL == "":
-        sys.exit("HELIX_GET_SESSION_URL is not set")
-
-    if respondJobURL == "":
-        sys.exit("HELIX_RESPOND_JOB_URL is not set")
+    if readSessionURL == "":
+        sys.exit("HELIX_INITIAL_SESSION_URL is not set")
 
     if appFolder == "":
         sys.exit("APP_FOLDER is not set")
 
-    print(f"🟡 HELIX_GET_JOB_URL {getJobURL} --------------------------------------------------\n")
-    print(f"🟡 HELIX_GET_SESSION_URL {getSessionURL} --------------------------------------------------\n")
-    print(f"🟡 HELIX_RESPOND_JOB_URL {respondJobURL} --------------------------------------------------\n")
+    print(f"🟡 HELIX_NEXT_TASK_URL {getJobURL} --------------------------------------------------\n")
+    print(f"🟡 HELIX_INITIAL_SESSION_URL {readSessionURL} --------------------------------------------------\n")
     print(f"🟡 APP_FOLDER {appFolder} --------------------------------------------------\n")
 
     parser = argparse.ArgumentParser()
@@ -253,20 +196,16 @@ if __name__ == "__main__":
     # rather waiting until it appears so we can know what lora weights to
     # load (if any)
     while waiting_for_initial_session:
-        response = requests.get(getSessionURL)
+        response = requests.get(readSessionURL)
         if response.status_code != 200:
             time.sleep(0.1)
-            waitLoops = waitLoops + 1
-            if waitLoops % 10 == 0:
-                print("--------------------------------------------------\n")
-                current_timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                print(f"{current_timestamp} waiting for initial session {getSessionURL} {response.status_code}")
             continue
         
         session = json.loads(response.content)
         waiting_for_initial_session = False
-        if session["finetune_file"] != "":
-            lora_weights = [session["finetune_file"]]
+        lora_dir = session["lora_dir"]
+        if lora_dir != "":
+            lora_weights = [f"{lora_dir}/lora.safetensors"]
 
     print("🟡 Lora weights --------------------------------------------------\n")
     print(lora_weights)
@@ -277,7 +216,7 @@ if __name__ == "__main__":
             weights_file, multiplier = weights_file.split(";")
             multiplier = float(multiplier)
         else:
-            multiplier = 1.0
+            multiplier = 0.7
 
         lora_model, weights_sd = lora.create_network_from_weights(
             multiplier, weights_file, vae, [text_model1, text_model2], unet, None, True
@@ -421,34 +360,24 @@ if __name__ == "__main__":
             img.save(image_path)
         return image_paths
 
-    waitLoops = 0
     while True:
         response = requests.get(getJobURL)
         if response.status_code != 200:
             time.sleep(0.1)
-            waitLoops = waitLoops + 1
-            if waitLoops % 10 == 0:
-                print("--------------------------------------------------\n")
-                current_timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                print(f"{current_timestamp} waiting for next job {getJobURL} {response.status_code}")
             continue
 
-        waitLoops = 0
         last_seen_progress = 0
 
         task = json.loads(response.content)
+        session_id = task["session_id"]
 
         print("🟡 SDXL Job --------------------------------------------------\n")
         print(task)
 
-        with redirect_stderr_to_function(capture_model_output_chunk, buffer_size=20, url=respondJobURL, sessionid=task["session_id"]):
-            image_paths = generate_image(task["session_id"], task["prompt"], "", "", seed)
+        print(f"[SESSION_START]session_id={session_id}", file=sys.stdout)
 
+        image_paths = generate_image(task["session_id"], task["prompt"], "", "", seed)
+
+        print(f"[SESSION_END_IMAGES]images={json.dumps(image_paths)}", file=sys.stdout)
         print("🟡 SDXL Result --------------------------------------------------\n")
         print(image_paths)
-        json_payload = json.dumps({
-            "type": "result",
-            "session_id": task["session_id"],
-            "files": image_paths
-        })
-        requests.post(respondJobURL, data=json_payload)
