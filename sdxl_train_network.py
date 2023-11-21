@@ -262,19 +262,20 @@ if __name__ == "__main__":
         print("🟡 SDXL All Outputs --------------------------------------------------\n")
         print(all_tensors_dir)
 
-        # cliArgs.dataset_config = config_path
-        # cliArgs.output_dir = all_tensors_dir
+        cliArgs.dataset_config = config_path
+        cliArgs.output_dir = all_tensors_dir
 
-        # args = train_util.read_config_from_file(cliArgs, parser)
+        args = train_util.read_config_from_file(cliArgs, parser)
 
         print(f"[SESSION_START]session_id={session_id}", file=sys.stdout)
 
-        # trainer = SdxlNetworkTrainer()
-        # trainer.train(args)
+        trainer = SdxlNetworkTrainer()
+        trainer.train(args)
 
-        # shutil.move(f"{all_tensors_dir}/{lora_filename}", f"{final_tensors_dir}/{lora_filename}")
-        # shutil.rmtree(all_tensors_dir)
+        shutil.move(f"{all_tensors_dir}/{lora_filename}", f"{final_tensors_dir}/{lora_filename}")
+        shutil.rmtree(all_tensors_dir)
 
-        shutil.copy(f"/tmp/helix/results/59f1fa58-34a4-434b-8dc3-36edf83dc712/final_tensors/{lora_filename}", f"{final_tensors_dir}/{lora_filename}")
+        # for testing you can return the lora from a previous finetune
+        # shutil.copy(f"/tmp/helix/results/e627fb41-048b-41d9-8090-e867d0e858fc/final_tensors/{lora_filename}", f"{final_tensors_dir}/{lora_filename}")
 
         print(f"[SESSION_END_LORA_DIR]lora_dir={final_tensors_dir}", file=sys.stdout)

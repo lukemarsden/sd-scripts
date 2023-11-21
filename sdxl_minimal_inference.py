@@ -106,7 +106,7 @@ if __name__ == "__main__":
         sys.exit("HELIX_GET_JOB_URL is not set")
 
     if readSessionURL == "":
-        sys.exit("HELIX_GET_SESSION_URL is not set")
+        sys.exit("HELIX_INITIAL_SESSION_URL is not set")
 
     if appFolder == "":
         sys.exit("APP_FOLDER is not set")
@@ -203,8 +203,9 @@ if __name__ == "__main__":
         
         session = json.loads(response.content)
         waiting_for_initial_session = False
-        # if session["lora_dir"] != "":
-        #     lora_weights = [session["lora_dir"]]
+        lora_dir = session["lora_dir"]
+        if lora_dir != "":
+            lora_weights = [f"{lora_dir}/lora.safetensors"]
 
     print("🟡 Lora weights --------------------------------------------------\n")
     print(lora_weights)
