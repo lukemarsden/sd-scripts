@@ -2,6 +2,7 @@
 # Minimal code for performing inference at local. Use HuggingFace/Diffusers CLIP, scheduler and VAE
 
 import argparse
+import base64
 import datetime
 import math
 import os
@@ -383,6 +384,12 @@ if __name__ == "__main__":
             img.save(image_path)
         return image_paths
 
+    def base64_files(files):
+        for f in files:
+            with open(f, "rb") as image_file:
+                encoded_string = base64.b64encode(image_file.read()).decode("utf-8")
+                yield encoded_string
+
     waitLoops = 0
     while True:
         response = requests.get(getJobURL)
@@ -411,6 +418,6 @@ if __name__ == "__main__":
         json_payload = json.dumps({
             "type": "result",
             "session_id": task["session_id"],
-            "files": image_paths
+            "files": list(map(base64_files, image_paths))
         })
         requests.post(respondJobURL, data=json_payload)
