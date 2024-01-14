@@ -1382,6 +1382,19 @@ def main(args):
     print("loading tokenizer")
     tokenizer1, tokenizer2 = sdxl_train_util.load_tokenizers(args)
 
+    # LoRA
+    for weights_file in args.lora_weights:
+        if ";" in weights_file:
+            weights_file, multiplier = weights_file.split(";")
+            multiplier = float(multiplier)
+        else:
+            multiplier = 1.0
+
+        lora_model, weights_sd = lora.create_network_from_weights(
+            multiplier, weights_file, vae, [text_model1, text_model2], unet, None, True
+        )
+        lora_model.merge_to([text_model1, text_model2], unet, weights_sd, DTYPE, DEVICE)
+
     # schedulerを用意する
     sched_init_args = {}
     has_steps_offset = True
@@ -2499,6 +2512,13 @@ def main(args):
 def setup_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
 
+    parser.add_argument(
+        "--lora_weights",
+        type=str,
+        nargs="*",
+        default=[],
+        help="LoRA weights, only supports networks.lora, each argument is a `path;multiplier` (semi-colon separated)",
+    )
     parser.add_argument("--prompt", type=str, default=None, help="prompt / プロンプト")
     parser.add_argument(
         "--from_file", type=str, default=None, help="if specified, load prompts from this file / 指定時はプロンプトをファイルから読み込む"
